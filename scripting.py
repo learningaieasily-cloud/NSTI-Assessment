@@ -1672,7 +1672,22 @@ elif st.session_state.page == "upload_assessment":
 
     if uploaded_file is not None:
 
-        excel_file = pd.ExcelFile(uploaded_file)
+        if BarChart is None or Reference is None:
+            st.error(
+                "The openpyxl package is not installed in this environment. "
+                "Excel upload and report generation require openpyxl. "
+                "Please add openpyxl to requirements.txt and redeploy."
+            )
+            st.stop()
+
+        try:
+            excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
+        except ImportError:
+            st.error(
+                "openpyxl is required to read Excel files. "
+                "Please install openpyxl and redeploy the app."
+            )
+            st.stop()
 
         sheet_names = excel_file.sheet_names
 
