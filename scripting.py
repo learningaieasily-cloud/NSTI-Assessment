@@ -2591,41 +2591,150 @@ border:1px solid #e5e7eb;
     # ---------------------------------------------------
     st.markdown("**Assessment Summary**")
 
-    # Question Navigation Bubbles
+    # ---------------------------------------------------
+    # QUESTION NAVIGATION BUBBLES
+    # Rendered as pure HTML via components.html so we get
+    # full CSS control: green = answered, red = pending,
+    # indigo ring = current question.
+    # Clicking a bubble sets a hidden selectbox which
+    # Streamlit picks up to trigger navigation.
+    # ---------------------------------------------------
     st.markdown("### Question Status")
-    cols = st.columns(15)  # 15 columns for bubbles
+
+    # Legend
+    st.markdown(
+        """
+        <div style="display:flex; gap:18px; margin-bottom:10px; font-size:13px;">
+            <span>
+                <span style="
+                    display:inline-block;
+                    width:14px; height:14px;
+                    background:#10b981;
+                    border-radius:50%;
+                    vertical-align:middle;
+                    margin-right:5px;">
+                </span>
+                Submitted
+            </span>
+            <span>
+                <span style="
+                    display:inline-block;
+                    width:14px; height:14px;
+                    background:#ef4444;
+                    border-radius:50%;
+                    vertical-align:middle;
+                    margin-right:5px;">
+                </span>
+                Pending
+            </span>
+            <span>
+                <span style="
+                    display:inline-block;
+                    width:14px; height:14px;
+                    background:#6366f1;
+                    border-radius:50%;
+                    vertical-align:middle;
+                    margin-right:5px;">
+                </span>
+                Current
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Build bubble HTML
+    bubble_html = """
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    """
+
     for i in range(total_questions):
-        with cols[i % 15]:
-            if i in st.session_state.answers:
-                color = "#10b981"  # Green for answered
-                status = "Answered"
-            else:
-                color = "#ef4444"  # Red for pending
-                status = "Pending"
-            if st.button(f"{i+1}", key=f"nav_q_{i}", help=f"Go to Question {i+1} ({status})"):
-                st.session_state.current_question = i
-                st.rerun()
-            st.markdown(
-                f"""
-                <style>
-                button[key="nav_q_{i}"] {{
-                    background-color: {color} !important;
-                    color: white !important;
-                    border-radius: 50% !important;
-                    width: 30px !important;
-                    height: 30px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    font-weight: bold !important;
-                    font-size: 12px !important;
-                    border: none !important;
-                    margin: 2px !important;
+
+        if i == current_q:
+            # Current question — indigo fill
+            bg = "#6366f1"
+            border = "3px solid #312e81"
+            status = "Current"
+        elif i in st.session_state.answers:
+            # Answered/submitted
+            bg = "#10b981"
+            border = "3px solid transparent"
+            status = "Submitted"
+        else:
+            # Pending
+            bg = "#ef4444"
+            border = "3px solid transparent"
+            status = "Pending"
+
+        bubble_html += f"""
+        <div
+            title="Q{i + 1}: {status}"
+            onclick="
+                var sel = window.parent.document.querySelectorAll('select');
+                for (var s = 0; s < sel.length; s++) {{
+                    if (sel[s].getAttribute('aria-label') === 'question_nav_select' ||
+                        sel[s].id.includes('question_nav_select')) {{
+                        sel[s].value = '{i}';
+                        sel[s].dispatchEvent(new Event('change', {{bubbles: true}}));
+                        break;
+                    }}
                 }}
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
+                // Fallback: try the last select on page
+                var allSel = window.parent.document.querySelectorAll('select');
+                if (allSel.length > 0) {{
+                    var last = allSel[allSel.length - 1];
+                    last.value = '{i}';
+                    last.dispatchEvent(new Event('change', {{bubbles: true}}));
+                }}
+            "
+            style="
+                background: {bg};
+                color: white;
+                border: {border};
+                border-radius: 50%;
+                width: 36px;
+                height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                font-weight: 700;
+                cursor: pointer;
+                box-sizing: border-box;
+                user-select: none;
+                transition: transform 0.1s;
+            "
+            onmouseover="this.style.transform='scale(1.15)'"
+            onmouseout="this.style.transform='scale(1.0)'"
+        >
+            {i + 1}
+        </div>
+        """
+
+    bubble_html += "</div>"
+
+    # Calculate iframe height: ~44px per row of 15 bubbles + padding
+    bubble_rows = max(1, (total_questions + 14) // 15)
+    bubble_height = bubble_rows * 52 + 20
+
+    components.html(bubble_html, height=bubble_height, scrolling=False)
+
+    # Hidden selectbox — receives click events from the bubbles above
+    nav_index = current_q if current_q < total_questions else 0
+
+    selected_nav = st.selectbox(
+        "question_nav_select",
+        options=list(range(total_questions)),
+        index=nav_index,
+        format_func=lambda x: f"Question {x + 1}",
+        key="question_nav_select",
+        label_visibility="collapsed"
+    )
+
+    if selected_nav != current_q:
+        st.session_state.current_question = selected_nav
+        save_assessment_progress()
+        st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -2766,12 +2875,3 @@ elif st.session_state.page == "download_reports":
                 "spreadsheetml.sheet"
             )
         )
-
-# ===================================================
-# ASSESSMENT.PY REFERENCE NOTES
-# ===================================================
-# assessment.py
-# This file contains migration notes and code snippets for the LMS app.
-# It is not intended to be executed directly.
-#
-# Use details.py as the main application file.
