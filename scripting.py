@@ -170,8 +170,7 @@ default_values = {
     "assessment_df": pd.DataFrame(),
     "current_question": 0,
     "score": 0,
-    "answers": {},
-    "code_answers": {},
+    "correct_questions": set(),
     "code_drafts": {},
     "run_outputs": {},
     "test_results": {},
@@ -2169,11 +2168,29 @@ elif st.session_state.page == "take_assessment":
         or assessment_metadata.get("duration_minutes", 0)
     )
 
-    if time_expired:
+    if time_expired and not assessment_submitted:
+
+        st.session_state.assessment_submitted = True
+        st.session_state.submitted_at = datetime.now().isoformat(
+            timespec="seconds"
+        )
+
+        save_assessment_progress()
 
         st.error(
-            "Assessment time is over. Answers can no longer be submitted."
+            "Assessment time is over. Assessment has been automatically submitted."
         )
+
+        st.success(
+            f"""
+            Assessment Completed.
+
+            Final Score:
+            {earned_marks}/{total_marks} ({percentage}%)
+            """
+        )
+
+        st.stop()
 
     if assessment_submitted:
 
@@ -2542,15 +2559,15 @@ border:1px solid #e5e7eb;
 
         else:
 
-            if pending > 0 and not assessment_submitted:
+            if pending > 0 and not assessment_submitted and current_q < total_questions - 1:
 
                 st.warning(
-                    "Answer all 30 questions to submit the assessment."
+                    "Answer all questions to submit the assessment."
                 )
 
             if st.button(
                 "Submit Assessment",
-                disabled=assessment_submitted or pending > 0
+                disabled=assessment_submitted or (pending > 0 and current_q < total_questions - 1)
             ):
 
                 st.session_state.assessment_submitted = True
@@ -2573,6 +2590,44 @@ border:1px solid #e5e7eb;
     # ASSESSMENT SUMMARY
     # ---------------------------------------------------
     st.markdown("**Assessment Summary**")
+
+    # Question Navigation Bubbles
+    st.markdown("### Question Status")
+    cols = st.columns(15)  # 15 columns for bubbles
+    for i in range(total_questions):
+        with cols[i % 15]:
+            if i in st.session_state.answers:
+                color = "#10b981"  # Green for answered
+                status = "Answered"
+            else:
+                color = "#ef4444"  # Red for pending
+                status = "Pending"
+            if st.button(f"{i+1}", key=f"nav_q_{i}", help=f"Go to Question {i+1} ({status})"):
+                st.session_state.current_question = i
+                st.rerun()
+            st.markdown(
+                f"""
+                <style>
+                button[key="nav_q_{i}"] {{
+                    background-color: {color} !important;
+                    color: white !important;
+                    border-radius: 50% !important;
+                    width: 30px !important;
+                    height: 30px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    font-weight: bold !important;
+                    font-size: 12px !important;
+                    border: none !important;
+                    margin: 2px !important;
+                }}
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     summary_values = [
         ("Total", total_questions),
