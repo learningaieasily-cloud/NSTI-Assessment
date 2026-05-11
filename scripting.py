@@ -12,7 +12,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from openpyxl.chart import BarChart, Reference
+
+try:
+    from openpyxl.chart import BarChart, Reference
+except ImportError:
+    BarChart = None
+    Reference = None
 
 # ---------------------------------------------------
 # PAGE CONFIG
