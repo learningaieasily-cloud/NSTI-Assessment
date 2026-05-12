@@ -133,6 +133,27 @@ st.markdown(
         border-color: rgba(125, 211, 252, 0.45);
     }
 
+    [data-testid="stSidebar"] [data-testid="column"] .stButton>button {
+        width: 38px !important;
+        min-width: 38px !important;
+        max-width: 38px !important;
+        height: 38px !important;
+        min-height: 38px !important;
+        padding: 0 !important;
+        border-radius: 50% !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+        font-size: 13px !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="column"] .stButton {
+        display: flex;
+        justify-content: center;
+    }
+
     .dashboard-card {
         background: var(--surface);
         border-radius: 8px;
@@ -385,15 +406,20 @@ st.markdown(
         line-height: 1.6 !important;
     }
 
-    textarea[aria-label="Code Editor"] {
+    textarea[aria-label="Code Editor"],
+    textarea[aria-label="Logic Editor"] {
         background: var(--code-bg) !important;
         color: #dbeafe !important;
         border-color: #1f2a44 !important;
-        min-height: 460px;
         box-shadow: inset 44px 0 0 rgba(255, 255, 255, 0.035);
     }
 
-    textarea[aria-label="Code Editor"]::selection {
+    textarea[aria-label="Code Editor"] {
+        min-height: 460px;
+    }
+
+    textarea[aria-label="Code Editor"]::selection,
+    textarea[aria-label="Logic Editor"]::selection {
         background: rgba(96, 165, 250, 0.35);
     }
 
@@ -502,6 +528,14 @@ def is_valid_email(email):
     pattern = r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
 
     return re.match(pattern, email)
+
+def is_valid_name(value):
+
+    return re.fullmatch(r"[A-Za-z ]+", str(value).strip()) is not None
+
+def is_valid_admin_email_prefix(value):
+
+    return re.fullmatch(r"[A-Za-z0-9._%+-]+", str(value).strip()) is not None
 
 def get_config_value(name, default=""):
 
@@ -648,6 +682,44 @@ def load_assessment_metadata(assessment_file):
     except Exception:
 
         return {}
+
+def delete_assessment_artifacts(assessment_file, delete_progress=False):
+
+    deleted_items = []
+    assessment_path = os.path.join("assessment_files", assessment_file)
+
+    if os.path.exists(assessment_path):
+
+        os.remove(assessment_path)
+        deleted_items.append(assessment_file)
+
+    metadata_path = metadata_file_path(assessment_file)
+
+    if os.path.exists(metadata_path):
+
+        os.remove(metadata_path)
+        deleted_items.append(os.path.basename(metadata_path))
+
+    if delete_progress:
+
+        for progress_file in Path("assessment_progress").glob("*.json"):
+
+            try:
+
+                with open(progress_file, "r", encoding="utf-8") as file:
+
+                    progress_data = json.load(file)
+
+                if progress_data.get("assessment") == assessment_file:
+
+                    progress_file.unlink()
+                    deleted_items.append(progress_file.name)
+
+            except Exception:
+
+                continue
+
+    return deleted_items
 
 def parse_datetime(value):
 
@@ -899,13 +971,19 @@ def render_live_timer(remaining_seconds, duration_minutes):
 
 def render_visible_test_cases(test_cases):
 
-    if not test_cases:
+    visible_test_cases = [
+        test_case
+        for test_case in test_cases
+        if test_case.get("visible", True)
+    ]
+
+    if not visible_test_cases:
 
         return
 
     st.markdown("**Test Cases**")
 
-    for index, test_case in enumerate(test_cases, start=1):
+    for index, test_case in enumerate(visible_test_cases, start=1):
 
         test_input = html.escape(test_case["input"] or "(no input)")
         expected_output = html.escape(test_case["expected"])
@@ -941,6 +1019,84 @@ def render_visible_test_cases(test_cases):
                     border-radius:8px;
                     border:1px solid #e5e7eb;
                     margin:0;">{expected_output}</pre>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+def render_revealed_hidden_test_cases(test_results):
+
+    hidden_results = [
+        result
+        for result in test_results
+        if not result.get("visible", True)
+    ]
+
+    if not hidden_results:
+
+        return
+
+    all_hidden_passed = all(
+        result.get("passed", False)
+        for result in hidden_results
+    )
+
+    if not all_hidden_passed:
+
+        st.warning(
+            "Hidden test case(s) did not pass. Details will be shown after they pass."
+        )
+        return
+
+    st.markdown("**Hidden Test Cases**")
+
+    for index, result in enumerate(hidden_results, start=1):
+
+        test_input = html.escape(result.get("input") or "(no input)")
+        expected_output = html.escape(result.get("expected", ""))
+        actual_output = html.escape(normalize_output(result.get("actual", "")))
+
+        st.markdown(
+            f"""
+            <div style="
+                background:#ecfdf5;
+                border:1px solid #86efac;
+                border-radius:12px;
+                padding:14px;
+                margin-bottom:12px;">
+                <div style="font-weight:800; margin-bottom:8px; color:#166534;">
+                    Hidden Test Case {index}: Passed
+                </div>
+                <div style="font-size:13px; color:#166534; margin-bottom:4px;">
+                    Input
+                </div>
+                <pre style="
+                    white-space:pre-wrap;
+                    background:#ffffff;
+                    padding:10px;
+                    border-radius:8px;
+                    border:1px solid #bbf7d0;
+                    margin:0 0 10px 0;">{test_input}</pre>
+                <div style="font-size:13px; color:#166534; margin-bottom:4px;">
+                    Expected Output
+                </div>
+                <pre style="
+                    white-space:pre-wrap;
+                    background:#ffffff;
+                    padding:10px;
+                    border-radius:8px;
+                    border:1px solid #bbf7d0;
+                    margin:0 0 10px 0;">{expected_output}</pre>
+                <div style="font-size:13px; color:#166534; margin-bottom:4px;">
+                    Actual Output
+                </div>
+                <pre style="
+                    white-space:pre-wrap;
+                    background:#ffffff;
+                    padding:10px;
+                    border-radius:8px;
+                    border:1px solid #bbf7d0;
+                    margin:0;">{actual_output}</pre>
             </div>
             """,
             unsafe_allow_html=True
@@ -1134,6 +1290,39 @@ def get_row_value(row, column_name, default_value=""):
 
         return row[column_name]
 
+    normalized_target = re.sub(
+        r"[^a-z0-9]+",
+        "",
+        str(column_name).strip().lower()
+    )
+
+    for existing_column in row.index:
+
+        normalized_existing = re.sub(
+            r"[^a-z0-9]+",
+            "",
+            str(existing_column).strip().lower()
+        )
+
+        if (
+            normalized_existing == normalized_target
+            and pd.notna(row[existing_column])
+        ):
+
+            return row[existing_column]
+
+    return default_value
+
+def get_first_row_value(row, column_names, default_value=None):
+
+    for column_name in column_names:
+
+        value = get_row_value(row, column_name, None)
+
+        if value is not None:
+
+            return value
+
     return default_value
 
 def is_coding_question(row):
@@ -1248,33 +1437,308 @@ def get_test_cases(row):
 
     test_cases = []
 
-    single_input = get_row_value(row, "Test Input", None)
-    single_output = get_row_value(row, "Expected Output", None)
+    single_input = get_first_row_value(
+        row,
+        ["Test Input", "Input", "Sample Input"],
+        None
+    )
+    single_output = get_first_row_value(
+        row,
+        ["Expected Output", "Test Output", "Output", "Sample Output"],
+        None
+    )
 
     if single_output is not None:
 
         test_cases.append(
             {
                 "input": str(single_input or ""),
-                "expected": str(single_output)
+                "expected": str(single_output),
+                "visible": True
             }
         )
 
     for index in range(1, 6):
 
-        test_input = get_row_value(row, f"Test Input {index}", None)
-        expected_output = get_row_value(row, f"Expected Output {index}", None)
+        test_input = get_first_row_value(
+            row,
+            [
+                f"Test Input {index}",
+                f"Input {index}",
+                f"Sample Input {index}"
+            ],
+            None
+        )
+        expected_output = get_first_row_value(
+            row,
+            [
+                f"Expected Output {index}",
+                f"Test Output {index}",
+                f"Output {index}",
+                f"Sample Output {index}"
+            ],
+            None
+        )
 
         if expected_output is not None:
 
             test_cases.append(
                 {
                     "input": str(test_input or ""),
-                    "expected": str(expected_output)
+                    "expected": str(expected_output),
+                    "visible": True
+                }
+            )
+
+    hidden_single_input = get_first_row_value(
+        row,
+        [
+            "Hidden Test Input",
+            "Hidden Input",
+            "Hidden Test Case Input",
+            "Private Test Input",
+            "Private Input",
+            "Backend Test Input",
+            "Backend Input"
+        ],
+        None
+    )
+    hidden_single_output = get_first_row_value(
+        row,
+        [
+            "Hidden Expected Output",
+            "Hidden Test Output",
+            "Hidden Output",
+            "Hidden Test Case Output",
+            "Hidden Test Case Expected Output",
+            "Private Expected Output",
+            "Private Test Output",
+            "Private Output",
+            "Backend Expected Output",
+            "Backend Test Output",
+            "Backend Output"
+        ],
+        None
+    )
+
+    if hidden_single_output is not None:
+
+        test_cases.append(
+            {
+                "input": str(hidden_single_input or ""),
+                "expected": str(hidden_single_output),
+                "visible": False
+            }
+        )
+
+    for index in range(1, 6):
+
+        hidden_input = get_first_row_value(
+            row,
+            [
+                f"Hidden Test Input {index}",
+                f"Hidden Input {index}",
+                f"Hidden Test Case Input {index}",
+                f"Private Test Input {index}",
+                f"Private Input {index}",
+                f"Backend Test Input {index}",
+                f"Backend Input {index}"
+            ],
+            None
+        )
+        hidden_output = get_first_row_value(
+            row,
+            [
+                f"Hidden Expected Output {index}",
+                f"Hidden Test Output {index}",
+                f"Hidden Output {index}",
+                f"Hidden Test Case Expected Output {index}",
+                f"Hidden Test Case Output {index}",
+                f"Private Expected Output {index}",
+                f"Private Test Output {index}",
+                f"Private Output {index}",
+                f"Backend Expected Output {index}",
+                f"Backend Test Output {index}",
+                f"Backend Output {index}"
+            ],
+            None
+        )
+
+        if hidden_output is not None:
+
+            test_cases.append(
+                {
+                    "input": str(hidden_input or ""),
+                    "expected": str(hidden_output),
+                    "visible": False
                 }
             )
 
     return test_cases
+
+def get_logic_scaffold(row):
+
+    prefix = get_row_value(row, "Logic Prefix", None)
+    suffix = get_row_value(row, "Logic Suffix", None)
+    placeholder = get_row_value(
+        row,
+        "Logic Placeholder",
+        "# Write only the required logic here"
+    )
+
+    if prefix is None and suffix is None:
+
+        return None
+
+    return {
+        "prefix": str(prefix or ""),
+        "suffix": str(suffix or ""),
+        "placeholder": str(placeholder or "")
+    }
+
+def build_code_from_logic(logic_code, scaffold):
+
+    if not scaffold:
+
+        return logic_code
+
+    parts = [
+        scaffold.get("prefix", "").rstrip(),
+        logic_code.strip("\n"),
+        scaffold.get("suffix", "").lstrip()
+    ]
+
+    return "\n".join(
+        part
+        for part in parts
+        if part != ""
+    )
+
+def generate_default_starter_code(row, language):
+
+    language = str(language).lower()
+    question_text = str(get_row_value(row, "Question", "")).lower()
+
+    if language != "python":
+
+        return ""
+
+    if "space-separated" in question_text and (
+        "number" in question_text or "integer" in question_text
+    ):
+
+        if "largest" in question_text or "maximum" in question_text:
+
+            return "\n".join(
+                [
+                    "numbers = list(map(int, input().split()))",
+                    "",
+                    "# Write your logic here",
+                    "answer = None",
+                    "",
+                    "print(answer)"
+                ]
+            )
+
+        if "smallest" in question_text or "minimum" in question_text:
+
+            return "\n".join(
+                [
+                    "numbers = list(map(int, input().split()))",
+                    "",
+                    "# Write your logic here",
+                    "answer = None",
+                    "",
+                    "print(answer)"
+                ]
+            )
+
+        if "sum" in question_text or "total" in question_text:
+
+            return "\n".join(
+                [
+                    "numbers = list(map(int, input().split()))",
+                    "",
+                    "# Write your logic here",
+                    "answer = 0",
+                    "",
+                    "print(answer)"
+                ]
+            )
+
+        return "\n".join(
+            [
+                "numbers = list(map(int, input().split()))",
+                "",
+                "# Write your logic here",
+                "answer = None",
+                "",
+                "print(answer)"
+            ]
+        )
+
+    if "word" in question_text or "string" in question_text:
+
+        return "\n".join(
+            [
+                "text = input().strip()",
+                "",
+                "# Write your logic here",
+                "answer = None",
+                "",
+                "print(answer)"
+            ]
+        )
+
+    return "\n".join(
+        [
+            "# Read input",
+            "data = input().strip()",
+            "",
+            "# Write your logic here",
+            "answer = None",
+            "",
+            "print(answer)"
+        ]
+    )
+
+def get_code_suggestions(row, language):
+
+    question_text = str(get_row_value(row, "Question", "")).lower()
+    language = str(language).lower()
+    suggestions = []
+
+    if language == "python":
+
+        suggestions.extend(
+            [
+                "Use `split()` to read space-separated values.",
+                "Convert numeric inputs with `int()` or `float()` before calculations.",
+                "Print only the final answer expected by the test cases."
+            ]
+        )
+
+    if "list" in question_text or "array" in question_text:
+
+        suggestions.append(
+            "Loop through the values once and store only what you need."
+        )
+
+    if "maximum" in question_text or "largest" in question_text:
+
+        suggestions.append("Track the current best value while iterating.")
+
+    if "count" in question_text or "frequency" in question_text:
+
+        suggestions.append("A dictionary/map is useful for counting values.")
+
+    if "string" in question_text or "word" in question_text:
+
+        suggestions.append(
+            "Normalize whitespace/case if the question expects text comparison."
+        )
+
+    return suggestions[:5]
 
 def is_saved_answer_correct(question_index, row, answers, code_answers):
 
@@ -1781,7 +2245,8 @@ def run_code_tests(language, code, test_cases):
                 "input": test_case["input"],
                 "expected": test_case["expected"],
                 "actual": actual_output,
-                "passed": passed
+                "passed": passed,
+                "visible": test_case.get("visible", True)
             }
         )
 
@@ -1798,6 +2263,16 @@ def format_test_results(test_results):
     for result in test_results:
 
         status = "PASS" if result["passed"] else "FAIL"
+
+        if not result.get("visible", True):
+
+            lines.extend(
+                [
+                    f"Hidden Test Case {result['test']}: {status}",
+                    ""
+                ]
+            )
+            continue
 
         lines.extend(
             [
@@ -1986,13 +2461,43 @@ if st.session_state.page == "login":
     # ---------------------------------------------------
     elif role == "Administrator":
 
-        admin_email = st.text_input("Administrator Email")
+        email_col1, email_col2 = st.columns([1.4, 1])
+
+        with email_col1:
+
+            admin_prefix = st.text_input(
+                "Administrator Email",
+                placeholder="name"
+            )
+
+        with email_col2:
+
+            st.text_input(
+                "Domain",
+                value="@edunetfoundation.org",
+                disabled=True,
+                label_visibility="hidden"
+            )
 
         if st.button("Send Admin Verification Code"):
 
-            admin_email = admin_email.strip().lower()
+            admin_prefix = admin_prefix.strip().lower()
 
-            if admin_email.lower().endswith("@edunetfoundation.org"):
+            if not admin_prefix:
+
+                st.error("Please enter Administrator Email.")
+
+            elif "@" in admin_prefix or not is_valid_admin_email_prefix(
+                admin_prefix
+            ):
+
+                st.error(
+                    "Please enter only the part before @edunetfoundation.org."
+                )
+
+            else:
+
+                admin_email = f"{admin_prefix}@edunetfoundation.org"
 
                 verification_code = generate_verification_code()
                 sent, notice = send_admin_verification_email(
@@ -2009,12 +2514,6 @@ if st.session_state.page == "login":
                 st.session_state.admin_verification_notice = notice
 
                 st.rerun()
-
-            else:
-
-                st.error(
-                    "Only @edunetfoundation.org emails allowed."
-                )
 
         if st.session_state.pending_admin_email:
 
@@ -2153,9 +2652,17 @@ elif st.session_state.page == "student_details":
 
     if next_button:
 
-        if full_name.strip() == "":
+        full_name = " ".join(full_name.strip().split())
+
+        if full_name == "":
 
             st.error("Please enter Student Full Name.")
+
+        elif not is_valid_name(full_name):
+
+            st.error(
+                "Student Full Name should contain letters and spaces only."
+            )
 
         elif selected_nsti == "Select NSTI":
 
@@ -2347,8 +2854,17 @@ elif st.session_state.page == "upload_assessment":
             Question Type = Coding
             Language
             Starter Code
+            Logic Prefix
+            Logic Suffix
             Test Input 1
             Expected Output 1
+            Hidden Test Input 1
+            Hidden Expected Output 1
+
+            Hidden output column aliases are also supported:
+            Hidden Test Output 1
+            Hidden Output 1
+            Private Test Output 1
             """
         )
 
@@ -2506,6 +3022,61 @@ elif st.session_state.page == "view_assessments":
 
     else:
 
+        selected_for_delete = st.multiselect(
+            "Select assessments for bulk delete",
+            sorted(excel_files),
+            placeholder="Choose one or more assessments"
+        )
+        delete_progress_records = st.checkbox(
+            "Also delete related student progress/results",
+            value=False
+        )
+
+        bulk_col1, bulk_col2 = st.columns([1, 2])
+
+        with bulk_col1:
+
+            confirm_bulk_delete = st.checkbox(
+                "Confirm bulk delete",
+                key="confirm_bulk_delete"
+            )
+
+        with bulk_col2:
+
+            if st.button(
+                "Delete Selected Assessments",
+                disabled=(
+                    not selected_for_delete
+                    or not confirm_bulk_delete
+                )
+            ):
+
+                try:
+
+                    total_deleted = 0
+
+                    for selected_file in selected_for_delete:
+
+                        total_deleted += len(
+                            delete_assessment_artifacts(
+                                selected_file,
+                                delete_progress_records
+                            )
+                        )
+
+                    st.success(
+                        f"Deleted {len(selected_for_delete)} assessment(s). "
+                        f"Removed {total_deleted} file(s)/record(s)."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(f"Bulk delete failed: {e}")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         for file in sorted(excel_files):
 
             col1, col2, col3 = st.columns([4, 1, 1])
@@ -2532,12 +3103,20 @@ elif st.session_state.page == "view_assessments":
 
             with col2:
 
+                if st.button(
+                    "Edit",
+                    key=f"edit_assessment_{file}"
+                ):
+
+                    st.session_state.edit_assessment_file = file
+                    st.rerun()
+
+            with col3:
+
                 confirm_delete = st.checkbox(
                     "Confirm",
                     key=f"confirm_delete_{file}"
                 )
-
-            with col3:
 
                 if st.button(
                     "Delete",
@@ -2552,13 +3131,7 @@ elif st.session_state.page == "view_assessments":
 
                     try:
 
-                        os.remove(file_path)
-
-                        metadata_path = metadata_file_path(file)
-
-                        if os.path.exists(metadata_path):
-
-                            os.remove(metadata_path)
+                        delete_assessment_artifacts(file)
 
                         st.success(
                             f"{file} deleted successfully."
@@ -2571,6 +3144,151 @@ elif st.session_state.page == "view_assessments":
                         st.error(
                             f"Could not delete assessment: {e}"
                         )
+
+            if st.session_state.get("edit_assessment_file") == file:
+
+                with st.expander(
+                    f"Edit {file.replace('.xlsx', '')}",
+                    expanded=True
+                ):
+
+                    try:
+
+                        edit_path = os.path.join(
+                            "assessment_files",
+                            file
+                        )
+                        edit_df = pd.read_excel(edit_path)
+                        edited_df = st.data_editor(
+                            edit_df,
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            key=f"data_editor_{file}"
+                        )
+
+                        start_at = parse_datetime(
+                            metadata.get("start_at")
+                        ) or datetime.combine(date.today(), time(9, 0))
+                        end_at = parse_datetime(
+                            metadata.get("end_at")
+                        ) or datetime.combine(date.today(), time(18, 0))
+
+                        edit_col1, edit_col2 = st.columns(2)
+
+                        with edit_col1:
+
+                            edited_start_date = st.date_input(
+                                "Start Date",
+                                value=start_at.date(),
+                                key=f"edit_start_date_{file}"
+                            )
+                            edited_start_time = st.time_input(
+                                "Start Time",
+                                value=start_at.time(),
+                                key=f"edit_start_time_{file}"
+                            )
+
+                        with edit_col2:
+
+                            edited_end_date = st.date_input(
+                                "End Date",
+                                value=end_at.date(),
+                                key=f"edit_end_date_{file}"
+                            )
+                            edited_end_time = st.time_input(
+                                "End Time",
+                                value=end_at.time(),
+                                key=f"edit_end_time_{file}"
+                            )
+
+                        duration_options = [
+                            15, 30, 45, 60, 75, 90, 120, 150, 180
+                        ]
+
+                        try:
+
+                            current_duration = int(
+                                metadata.get("duration_minutes", 60)
+                            )
+
+                        except (TypeError, ValueError):
+
+                            current_duration = 60
+
+                        if current_duration not in duration_options:
+
+                            current_duration = 60
+
+                        edited_duration = st.selectbox(
+                            "Duration",
+                            duration_options,
+                            index=duration_options.index(current_duration),
+                            format_func=lambda value: format_duration(value),
+                            key=f"edit_duration_{file}"
+                        )
+
+                        save_col, cancel_col = st.columns(2)
+
+                        with save_col:
+
+                            if st.button(
+                                "Save Assessment Changes",
+                                key=f"save_edit_{file}"
+                            ):
+
+                                if datetime.combine(
+                                    edited_end_date,
+                                    edited_end_time
+                                ) <= datetime.combine(
+                                    edited_start_date,
+                                    edited_start_time
+                                ):
+
+                                    st.error(
+                                        "Assessment end date/time must be after start date/time."
+                                    )
+
+                                else:
+
+                                    edited_df.to_excel(
+                                        edit_path,
+                                        index=False
+                                    )
+                                    metadata.update(
+                                        {
+                                            "start_at": datetime.combine(
+                                                edited_start_date,
+                                                edited_start_time
+                                            ).isoformat(timespec="seconds"),
+                                            "end_at": datetime.combine(
+                                                edited_end_date,
+                                                edited_end_time
+                                            ).isoformat(timespec="seconds"),
+                                            "duration_minutes": int(
+                                                edited_duration
+                                            )
+                                        }
+                                    )
+                                    save_assessment_metadata(file, metadata)
+                                    st.session_state.edit_assessment_file = ""
+                                    st.success(
+                                        "Assessment updated successfully."
+                                    )
+                                    st.rerun()
+
+                        with cancel_col:
+
+                            if st.button(
+                                "Close Editor",
+                                key=f"close_edit_{file}"
+                            ):
+
+                                st.session_state.edit_assessment_file = ""
+                                st.rerun()
+
+                    except Exception as e:
+
+                        st.error(f"Could not edit assessment: {e}")
 
 # ===================================================
 # STUDENT ASSESSMENT SELECTION
@@ -2790,101 +3508,50 @@ elif st.session_state.page == "take_assessment":
             unsafe_allow_html=True
         )
 
-        bubble_html = """
-        <style>
-            .bubble-grid {
-                display: grid;
-                grid-template-columns: repeat(5, 1fr);
-                gap: 8px;
-                width: 100%;
-                box-sizing: border-box;
-                padding: 2px 0 4px;
-                font-family: Inter, Arial, sans-serif;
-            }
-            .q-bubble {
-                width: 34px;
-                height: 34px;
-                margin: 0 auto;
-                border-radius: 50%;
-                color: #ffffff;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 12px;
-                font-weight: 800;
-                cursor: pointer;
-                user-select: none;
-                box-sizing: border-box;
-                transition: transform 140ms ease, filter 140ms ease;
-            }
-            .q-bubble:hover {
-                transform: translateY(-2px) scale(1.05);
-                filter: brightness(1.08);
-            }
-        </style>
-        <div class="bubble-grid">
-        """
+        question_map_items = []
 
-        for i in range(total_questions):
+        for question_index in range(total_questions):
 
-            if i == current_q:
+            if question_index == current_q:
+
                 bg = "#6366f1"
-                border = "3px solid #c7d2fe"
+                border = "2px solid #c7d2fe"
+                shadow = "0 0 0 3px rgba(99, 102, 241, 0.24)"
                 status = "Current"
-            elif i in st.session_state.answers:
+
+            elif question_index in st.session_state.answers:
+
                 bg = "#10b981"
-                border = "3px solid rgba(16, 185, 129, 0.25)"
+                border = "2px solid rgba(255, 255, 255, 0.24)"
+                shadow = "none"
                 status = "Submitted"
+
             else:
+
                 bg = "#ef4444"
-                border = "3px solid rgba(239, 68, 68, 0.25)"
+                border = "2px solid rgba(255, 255, 255, 0.22)"
+                shadow = "none"
                 status = "Pending"
 
-            bubble_html += f"""
-            <div
-                class="q-bubble"
-                title="Q{i + 1}: {status}"
-                onclick="
-                    var selects = window.parent.document.querySelectorAll('select');
-                    for (var s = 0; s < selects.length; s++) {{
-                        if (selects[s].getAttribute('aria-label') === 'question_nav_select' ||
-                            selects[s].id.includes('question_nav_select')) {{
-                            selects[s].value = '{i}';
-                            selects[s].dispatchEvent(new Event('change', {{bubbles: true}}));
-                            break;
-                        }}
-                    }}
-                "
-                style="background:{bg}; border:{border};"
-            >
-                {i + 1}
-            </div>
-            """
+            question_map_items.append(
+                f'<div title="Q{question_index + 1}: {status}" '
+                f'style="width:28px;height:28px;border-radius:50%;'
+                f'display:flex;align-items:center;justify-content:center;'
+                f'box-sizing:border-box;background:{bg};color:#ffffff;'
+                f'border:{border};box-shadow:{shadow};font-size:11px;'
+                f'font-weight:800;line-height:1;text-align:center;'
+                f'user-select:none;">{question_index + 1}</div>'
+            )
 
-        bubble_html += "</div>"
-        bubble_rows = max(1, (total_questions + 4) // 5)
-
-        components.html(
-            bubble_html,
-            height=bubble_rows * 44 + 12,
-            scrolling=False
+        question_map_html = (
+            '<div style="display:grid;grid-template-columns:repeat(5, 28px);'
+            'gap:8px 10px;align-items:center;margin-top:10px;'
+            'margin-bottom:12px;">'
+            + "".join(question_map_items)
+            + "</div>"
         )
 
-        nav_index = current_q if current_q < total_questions else 0
-        selected_nav = st.selectbox(
-            "question_nav_select",
-            options=list(range(total_questions)),
-            index=nav_index,
-            format_func=lambda x: f"Question {x + 1}",
-            key="question_nav_select",
-            label_visibility="collapsed"
-        )
-
-        if selected_nav != current_q:
-
-            st.session_state.current_question = selected_nav
-            save_assessment_progress()
-            st.rerun()
+        st.markdown(question_map_html, unsafe_allow_html=True)
 
     assessment_title = Path(
         str(st.session_state.selected_assessment)
@@ -2983,6 +3650,12 @@ elif st.session_state.page == "take_assessment":
 
         render_visible_test_cases(test_cases)
 
+        latest_test_results = st.session_state.test_results.get(
+            current_q,
+            []
+        )
+        render_revealed_hidden_test_cases(latest_test_results)
+
     # ---------------------------------------------------
     # ANSWER SECTION
     # ---------------------------------------------------
@@ -3051,17 +3724,33 @@ elif st.session_state.page == "take_assessment":
 
             if starter_code_value is None:
 
-                starter_code = ""
+                starter_code = generate_default_starter_code(
+                    row,
+                    selected_language
+                )
 
             else:
 
-                starter_code = str(starter_code_value)
+                starter_code = str(starter_code_value).strip()
 
-            if "code" in saved_code_draft:
+                if starter_code == "":
+
+                    starter_code = generate_default_starter_code(
+                        row,
+                        selected_language
+                    )
+
+            if (
+                "code" in saved_code_draft
+                and str(saved_code_draft.get("code", "")).strip() != ""
+            ):
 
                 saved_code = saved_code_draft.get("code", "")
 
-            elif "code" in saved_code_answer:
+            elif (
+                "code" in saved_code_answer
+                and str(saved_code_answer.get("code", "")).strip() != ""
+            ):
 
                 saved_code = saved_code_answer.get("code", "")
 
@@ -3069,31 +3758,101 @@ elif st.session_state.page == "take_assessment":
 
                 saved_code = starter_code
 
-            code_editor_key = f"code_editor_{current_q}"
+            scaffold = get_logic_scaffold(row)
 
-            if code_editor_key not in st.session_state:
+            if scaffold:
 
-                st.session_state[code_editor_key] = saved_code
+                st.markdown("**Default Code**")
 
-            code_value = st.text_area(
-                "Code Editor",
-                value=saved_code,
-                height=460,
-                key=code_editor_key
-            )
+                st.code(
+                    build_code_from_logic(
+                        scaffold.get("placeholder", ""),
+                        scaffold
+                    ),
+                    language=selected_language.lower()
+                )
+
+                logic_editor_key = f"logic_editor_{current_q}"
+                saved_logic = (
+                    saved_code_draft.get("logic")
+                    or saved_code_answer.get("logic")
+                    or ""
+                )
+
+                if logic_editor_key not in st.session_state:
+
+                    st.session_state[logic_editor_key] = saved_logic
+
+                code_value = st.text_area(
+                    "Logic Editor",
+                    height=280,
+                    key=logic_editor_key,
+                    placeholder=scaffold.get("placeholder", "")
+                )
+
+                final_code_value = build_code_from_logic(
+                    code_value,
+                    scaffold
+                )
+
+                with st.expander("Generated full code", expanded=False):
+
+                    st.code(
+                        final_code_value,
+                        language=selected_language.lower()
+                    )
+
+            else:
+
+                code_editor_key = f"code_editor_{current_q}"
+
+                if (
+                    code_editor_key not in st.session_state
+                    or str(st.session_state[code_editor_key]).strip() == ""
+                ):
+
+                    st.session_state[code_editor_key] = saved_code
+
+                code_value = st.text_area(
+                    "Code Editor",
+                    height=460,
+                    key=code_editor_key
+                )
+
+                final_code_value = code_value
 
             st.session_state.code_drafts[current_q] = {
                 "language": selected_language,
-                "code": code_value
+                "code": final_code_value,
+                "logic": code_value if scaffold else ""
             }
 
             save_assessment_progress()
 
             if test_cases:
 
-                st.info(
-                    f"{len(test_cases)} test case(s) will be checked."
+                hidden_test_count = len(
+                    [
+                        test_case
+                        for test_case in test_cases
+                        if not test_case.get("visible", True)
+                    ]
                 )
+
+                st.info(
+                    f"{len(test_cases)} test case(s) will be checked, "
+                    f"including {hidden_test_count} hidden test case(s)."
+                )
+
+            suggestions = get_code_suggestions(row, selected_language)
+
+            if suggestions:
+
+                with st.expander("Suggestions", expanded=False):
+
+                    for suggestion in suggestions:
+
+                        st.write(f"- {suggestion}")
 
             program_input = st.text_area(
                 "Program Input",
@@ -3117,14 +3876,15 @@ elif st.session_state.page == "take_assessment":
 
                     st.session_state.code_answers[current_q] = {
                         "language": selected_language,
-                        "code": code_value
+                        "code": final_code_value,
+                        "logic": code_value if scaffold else ""
                     }
 
                     if test_cases:
 
                         test_results = run_code_tests(
                             selected_language,
-                            code_value,
+                            final_code_value,
                             test_cases
                         )
 
@@ -3144,7 +3904,7 @@ elif st.session_state.page == "take_assessment":
                         st.session_state.run_outputs[current_q] = (
                             run_student_code(
                                 selected_language,
-                                code_value,
+                                final_code_value,
                                 program_input
                             )
                         )
@@ -3164,7 +3924,7 @@ elif st.session_state.page == "take_assessment":
                     not time_expired
                     and not assessment_submitted
                     and st.session_state.test_passed.get(current_q, False)
-                    and latest_run.get("code") == code_value
+                    and latest_run.get("code") == final_code_value
                     and latest_run.get("language") == selected_language
                 )
 
@@ -3176,12 +3936,14 @@ elif st.session_state.page == "take_assessment":
 
                     st.session_state.answers[current_q] = {
                         "language": selected_language,
-                        "code": code_value
+                        "code": final_code_value,
+                        "logic": code_value if scaffold else ""
                     }
 
                     st.session_state.code_answers[current_q] = {
                         "language": selected_language,
-                        "code": code_value,
+                        "code": final_code_value,
+                        "logic": code_value if scaffold else "",
                         "test_results": st.session_state.test_results.get(
                             current_q,
                             []
@@ -3352,7 +4114,7 @@ elif st.session_state.page == "take_assessment":
     # ---------------------------------------------------
     st.markdown("**Assessment Summary**")
 
-    # ---------------------------------------------------
+# ---------------------------------------------------
     # QUESTION NAVIGATION BUBBLES
     # Rendered as pure HTML via components.html so we get
     # full CSS control: green = answered, red = pending,
@@ -3362,10 +4124,10 @@ elif st.session_state.page == "take_assessment":
     # ---------------------------------------------------
     st.markdown("")
 
-    # Legend
+    # Legend (Changed display:none to display:flex so it becomes visible)
     st.markdown(
         """
-        <div style="display:none; gap:18px; margin-bottom:10px; font-size:13px;">
+        <div style="display:flex; gap:18px; margin-bottom:15px; font-size:13px;">
             <span>
                 <span style="
                     display:inline-block;
@@ -3406,7 +4168,7 @@ elif st.session_state.page == "take_assessment":
 
     # Build bubble HTML
     bubble_html = """
-    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; align-items:flex-start; font-family: sans-serif;">
     """
 
     for i in range(total_questions):
@@ -3434,6 +4196,7 @@ elif st.session_state.page == "take_assessment":
                 var sel = window.parent.document.querySelectorAll('select');
                 for (var s = 0; s < sel.length; s++) {{
                     if (sel[s].getAttribute('aria-label') === 'question_nav_select' ||
+                        sel[s].id.includes('question_nav_select_legacy') ||
                         sel[s].id.includes('question_nav_select')) {{
                         sel[s].value = '{i}';
                         sel[s].dispatchEvent(new Event('change', {{bubbles: true}}));
@@ -3455,11 +4218,12 @@ elif st.session_state.page == "take_assessment":
                 border-radius: 50%;
                 width: 36px;
                 height: 36px;
-                display: flex;
+                display: inline-flex;
                 align-items: center;
                 justify-content: center;
                 font-size: 12px;
                 font-weight: 700;
+                line-height: 1;
                 cursor: pointer;
                 box-sizing: border-box;
                 user-select: none;
@@ -3474,9 +4238,9 @@ elif st.session_state.page == "take_assessment":
 
     bubble_html += "</div>"
 
-    # Calculate iframe height: ~44px per row of 15 bubbles + padding
+    # Calculate iframe height dynamically: ~46px per row of 15 bubbles + padding buffer
     bubble_rows = max(1, (total_questions + 14) // 15)
-    bubble_height = 0
+    bubble_height = (bubble_rows * 46) + 12 
 
     components.html(bubble_html, height=bubble_height, scrolling=False)
 
