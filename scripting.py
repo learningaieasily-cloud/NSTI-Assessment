@@ -2332,7 +2332,7 @@ if st.session_state.page == "login":
     st.markdown(
         """
         <div class='dashboard-card hero-card'>
-            <h1>NSTI Assessment LMS</h1>
+            <h1>Edunet Assessment LMS</h1>
             <p>Login to continue.</p>
         </div>
         """,
