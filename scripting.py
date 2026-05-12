@@ -8,10 +8,12 @@ import pandas as pd
 import re
 import os
 import random
+import smtplib
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from email.message import EmailMessage
 
 try:
     from openpyxl.chart import BarChart, Reference
@@ -23,7 +25,7 @@ except ImportError:
 # PAGE CONFIG
 # ---------------------------------------------------
 st.set_page_config(
-    page_title="NSTI Assessment LMS",
+    page_title="Edunet Assessment LMS",
     page_icon="📘",
     layout="wide"
 )
@@ -47,67 +49,297 @@ st.markdown(
     """
     <style>
 
+    :root {
+        --app-bg: #eef4f7;
+        --surface: rgba(255, 255, 255, 0.94);
+        --surface-strong: #ffffff;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #dbe4ea;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --teal: #0f766e;
+        --green: #15803d;
+        --danger: #dc2626;
+        --sidebar: #111827;
+        --code-bg: #0c1424;
+        --shadow-sm: 0 8px 22px rgba(15, 23, 42, 0.07);
+        --shadow-md: 0 18px 50px rgba(15, 23, 42, 0.12);
+    }
+
+    @keyframes cardIn {
+        from {
+            opacity: 0;
+            transform: translateY(12px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes softPulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.18);
+        }
+        50% {
+            box-shadow: 0 0 0 7px rgba(37, 99, 235, 0);
+        }
+    }
+
+    html, body, [class*="css"] {
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
     [data-testid="stAppViewContainer"] {
-        background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 55%, #ffffff 100%);
+        background:
+            radial-gradient(circle at top left, rgba(20, 184, 166, 0.13), transparent 30%),
+            linear-gradient(135deg, #edf7f8 0%, #f7fafc 46%, #f4f0e8 100%);
+    }
+
+    [data-testid="stHeader"] {
+        background: transparent;
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1320px;
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #111827 0%, #172033 62%, #0f172a 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #e5edf5;
+    }
+
+    [data-testid="stSidebar"] h1 {
+        font-size: 1.15rem;
+        letter-spacing: 0;
+        margin-bottom: 1.1rem;
+    }
+
+    [data-testid="stSidebar"] .stButton>button {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: none;
+    }
+
+    [data-testid="stSidebar"] .stButton>button:hover {
+        background: rgba(37, 99, 235, 0.42);
+        border-color: rgba(125, 211, 252, 0.45);
     }
 
     .dashboard-card {
-        background: #ffffff;
-        border-radius: 24px;
+        background: var(--surface);
+        border-radius: 8px;
         padding: 24px;
         margin-bottom: 20px;
-        box-shadow: 0px 10px 30px rgba(0,0,0,0.05);
-        border: 1px solid #e2e8f0;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid rgba(219, 228, 234, 0.9);
+        animation: cardIn 0.45s ease both;
+        backdrop-filter: blur(18px);
+    }
+
+    .dashboard-card h1,
+    .dashboard-card h2,
+    .dashboard-card h3 {
+        color: var(--ink);
+        letter-spacing: 0;
+        margin: 0;
+    }
+
+    .dashboard-card p {
+        color: var(--muted);
+        margin: 0.45rem 0 0;
     }
 
     .hero-card {
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        background:
+            linear-gradient(135deg, rgba(15, 118, 110, 0.95), rgba(37, 99, 235, 0.92)),
+            #0f766e;
+        color: white;
+        box-shadow: var(--shadow-md);
+    }
+
+    .hero-card h1,
+    .hero-card p {
         color: white;
     }
 
     .metric-card {
-        background: #f8fafc;
-        border-radius: 20px;
+        background: var(--surface-strong);
+        border-radius: 8px;
         padding: 20px;
-        border: 1px solid #e2e8f0;
+        border: 1px solid var(--line);
         margin-bottom: 15px;
+        box-shadow: var(--shadow-sm);
+        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(37, 99, 235, 0.45);
+        box-shadow: var(--shadow-md);
     }
 
     .metric-pill {
         display: inline-block;
         margin-top: 10px;
-        background: rgba(99,102,241,0.12);
-        color: #4f46e5;
+        background: rgba(15, 118, 110, 0.10);
+        color: var(--teal);
         padding: 6px 12px;
         border-radius: 999px;
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 700;
+        letter-spacing: 0;
     }
 
-    .stButton>button {
-        background-color: #6366f1;
-        color: white;
-        border-radius: 12px;
-        padding: 0.7rem 1.5rem;
-        border: none;
-        font-weight: 600;
-        width: 100%;
+    .assessment-topbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: end;
+        margin-bottom: 18px;
+        animation: cardIn 0.4s ease both;
     }
 
-    .stButton>button:hover {
-        background-color: #4f46e5;
+    .assessment-kicker {
+        color: var(--teal);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 6px;
     }
 
-    /* Question Styling */
+    .assessment-title {
+        color: var(--ink);
+        font-size: clamp(2rem, 4vw, 3.1rem);
+        line-height: 1.04;
+        font-weight: 800;
+        letter-spacing: 0;
+        margin: 0;
+    }
+
+    .score-strip {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .score-card {
+        min-width: 108px;
+        background: var(--surface-strong);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 13px 15px;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .score-card span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .score-card strong {
+        display: block;
+        color: var(--ink);
+        font-size: 24px;
+        line-height: 1.1;
+        margin-top: 4px;
+    }
+
+    .panel-card {
+        background: var(--surface);
+        border: 1px solid rgba(219, 228, 234, 0.95);
+        border-radius: 8px;
+        box-shadow: var(--shadow-sm);
+        padding: 18px;
+        margin-bottom: 18px;
+        animation: cardIn 0.5s ease both;
+    }
+
+    .panel-title {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 800;
+        margin: 0 0 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .panel-title::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--teal);
+        animation: softPulse 2.4s ease infinite;
+    }
+
     .question-text {
-        font-size: 18px;
+        font-size: 17px;
         font-weight: 400;
-        color: #111827;
+        color: var(--ink);
         line-height: 1.7;
         margin-bottom: 20px;
     }
 
-    /* Increase spacing between options */
+    .question-pre {
+        white-space: pre-wrap;
+        font-size: 16px;
+        font-family: Consolas, "Cascadia Code", monospace;
+        line-height: 1.7;
+        color: #172033;
+        background: linear-gradient(180deg, #f9fbfc, #f1f6f8);
+        padding: 18px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        overflow-x: auto;
+        margin: 0;
+    }
+
+    .stButton>button {
+        background: linear-gradient(135deg, var(--accent), #0f766e);
+        color: white;
+        border-radius: 8px;
+        padding: 0.72rem 1.15rem;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-weight: 800;
+        width: 100%;
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.20);
+        transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+    }
+
+    .stButton>button:hover {
+        background: linear-gradient(135deg, var(--accent-strong), #0d9488);
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 14px 28px rgba(15, 118, 110, 0.23);
+        filter: saturate(1.04);
+    }
+
+    .stButton>button:active {
+        transform: translateY(0);
+    }
+
+    .stButton>button:disabled {
+        background: #cbd5e1;
+        color: #64748b;
+        border-color: #cbd5e1;
+        box-shadow: none;
+    }
+
     div[role="radiogroup"] > label {
         display: flex !important;
         align-items: center !important;
@@ -115,37 +347,95 @@ st.markdown(
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
-        margin-bottom: 18px !important;
-        padding: 14px !important;
-        border-radius: 10px;
-        border: 1px solid #e5e7eb;
-        background-color: #ffffff;
+        margin-bottom: 14px !important;
+        padding: 14px 15px !important;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background-color: var(--surface-strong);
         font-size: 15px;
-        font-weight: 400;
+        font-weight: 500;
+        color: var(--ink);
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+        transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
     }
 
-    /* Hover effect */
     div[role="radiogroup"] > label:hover {
-        background-color: #f8fafc;
+        background-color: #f7fbfc;
+        border-color: rgba(15, 118, 110, 0.38);
+        transform: translateX(2px);
+    }
+
+    [data-baseweb="input"] input,
+    [data-baseweb="select"] > div,
+    textarea {
+        border-radius: 8px !important;
+        border-color: var(--line) !important;
+        transition: box-shadow 160ms ease, border-color 160ms ease;
+    }
+
+    [data-baseweb="input"] input:focus,
+    textarea:focus {
+        border-color: rgba(37, 99, 235, 0.7) !important;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.11) !important;
     }
 
     textarea {
-        font-family: Consolas, monospace !important;
+        font-family: Consolas, "Cascadia Code", monospace !important;
         font-size: 15px !important;
         line-height: 1.6 !important;
     }
 
+    textarea[aria-label="Code Editor"] {
+        background: var(--code-bg) !important;
+        color: #dbeafe !important;
+        border-color: #1f2a44 !important;
+        min-height: 460px;
+        box-shadow: inset 44px 0 0 rgba(255, 255, 255, 0.035);
+    }
+
+    textarea[aria-label="Code Editor"]::selection {
+        background: rgba(96, 165, 250, 0.35);
+    }
+
+    pre {
+        border-radius: 8px !important;
+    }
+
     .run-output {
-        background: #111827;
+        background: var(--code-bg);
         color: #f9fafb;
         padding: 16px;
-        border-radius: 12px;
+        border-radius: 8px;
         white-space: pre-wrap;
-        font-family: Consolas, monospace;
+        font-family: Consolas, "Cascadia Code", monospace;
         font-size: 14px;
         line-height: 1.6;
         min-height: 80px;
-        border: 1px solid #374151;
+        border: 1px solid #1f2a44;
+    }
+
+    [data-testid="stProgress"] > div > div > div {
+        background: linear-gradient(90deg, var(--teal), var(--accent));
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 8px;
+        border: 1px solid rgba(219, 228, 234, 0.9);
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+    }
+
+    @media (max-width: 900px) {
+        .assessment-topbar {
+            grid-template-columns: 1fr;
+        }
+
+        .score-strip {
+            justify-content: stretch;
+        }
+
+        .score-card {
+            flex: 1;
+        }
     }
 
     </style>
@@ -160,7 +450,17 @@ default_values = {
     "page": "login",
     "student_id": "",
     "student_email": "",
+    "pending_student_email": "",
+    "student_verification_code": "",
+    "student_verification_expires_at": "",
+    "student_verification_sent": False,
+    "student_verification_notice": "",
     "admin_email": "",
+    "pending_admin_email": "",
+    "admin_verification_code": "",
+    "admin_verification_expires_at": "",
+    "admin_verification_sent": False,
+    "admin_verification_notice": "",
     "full_name": "",
     "selected_nsti": "",
     "location": "",
@@ -197,13 +497,99 @@ def logout():
 
         del st.session_state[key]
 
-    st.rerun()
-
 def is_valid_email(email):
 
     pattern = r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
 
     return re.match(pattern, email)
+
+def get_config_value(name, default=""):
+
+    value = os.getenv(name)
+
+    if value:
+
+        return value
+
+    try:
+
+        return st.secrets.get(name, default)
+
+    except Exception:
+
+        return default
+
+def generate_verification_code():
+
+    return f"{random.randint(100000, 999999)}"
+
+def send_verification_email(recipient_email, verification_code, role_label):
+
+    smtp_host = get_config_value("SMTP_HOST")
+    smtp_port = int(get_config_value("SMTP_PORT", "587"))
+    smtp_username = get_config_value("SMTP_USERNAME")
+    smtp_password = get_config_value("SMTP_PASSWORD")
+    smtp_from = get_config_value(
+        "SMTP_FROM_EMAIL",
+        smtp_username or "no-reply@nsti-assessment.local"
+    )
+    smtp_use_tls = str(
+        get_config_value("SMTP_USE_TLS", "true")
+    ).lower() != "false"
+
+    if not smtp_host or not smtp_username or not smtp_password:
+
+        return False, (
+            "Email service is not configured. For local testing, use this "
+            f"verification code: {verification_code}"
+        )
+
+    message = EmailMessage()
+    message["Subject"] = "NSTI Assessment LMS verification code"
+    message["From"] = smtp_from
+    message["To"] = recipient_email
+    message.set_content(
+        f"""
+Your NSTI Assessment LMS {role_label} verification code is:
+
+{verification_code}
+
+This code is valid for 10 minutes. If you did not request this code, you can ignore this email.
+        """.strip()
+    )
+
+    try:
+
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+
+            if smtp_use_tls:
+
+                server.starttls()
+
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+
+        return True, "Verification code sent to your email."
+
+    except Exception as e:
+
+        return False, f"Could not send verification email: {e}"
+
+def send_student_verification_email(student_email, verification_code):
+
+    return send_verification_email(
+        student_email,
+        verification_code,
+        "student"
+    )
+
+def send_admin_verification_email(admin_email, verification_code):
+
+    return send_verification_email(
+        admin_email,
+        verification_code,
+        "administrator"
+    )
 
 def safe_file_name(value):
 
@@ -362,42 +748,117 @@ def render_live_timer(remaining_seconds, duration_minutes):
 
     components.html(
         f"""
-        <div style="
-            background:#111827;
-            color:#f9fafb;
-            padding:16px 18px;
-            border-radius:12px;
-            border:1px solid #374151;
-            margin-bottom:14px;
-            font-family:Arial, sans-serif;">
-            <div style="font-size:13px; color:#cbd5e1; margin-bottom:6px;">
-                Assessment Timer
-            </div>
-            <div style="display:flex; justify-content:space-between; gap:16px; align-items:center;">
+        <style>
+            @keyframes timerPulse {{
+                0%, 100% {{ box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.30); }}
+                50% {{ box-shadow: 0 0 0 10px rgba(45, 212, 191, 0); }}
+            }}
+            @keyframes clockSweep {{
+                from {{ transform: rotate(0deg); }}
+                to {{ transform: rotate(360deg); }}
+            }}
+            .timer-card {{
+                background: linear-gradient(160deg, #111827 0%, #172033 56%, #0f766e 140%);
+                color: #f9fafb;
+                padding: 15px 16px;
+                border-radius: 10px;
+                border: 1px solid rgba(148, 163, 184, 0.25);
+                font-family: Inter, Arial, sans-serif;
+                box-sizing: border-box;
+            }}
+            .timer-head {{
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 12px;
+            }}
+            .clock-icon {{
+                position: relative;
+                width: 34px;
+                height: 34px;
+                border: 2px solid #5eead4;
+                border-radius: 50%;
+                background: rgba(45, 212, 191, 0.10);
+                animation: timerPulse 2.2s ease-in-out infinite;
+                flex: 0 0 auto;
+            }}
+            .clock-icon::before {{
+                content: "";
+                position: absolute;
+                width: 2px;
+                height: 10px;
+                background: #f8fafc;
+                left: 15px;
+                top: 7px;
+                border-radius: 999px;
+                transform-origin: 1px 10px;
+                animation: clockSweep 12s linear infinite;
+            }}
+            .clock-icon::after {{
+                content: "";
+                position: absolute;
+                width: 8px;
+                height: 2px;
+                background: #93c5fd;
+                left: 15px;
+                top: 16px;
+                border-radius: 999px;
+                transform-origin: 0 1px;
+            }}
+            .timer-label {{
+                color: #cbd5e1;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }}
+            #timer-value {{
+                font-size: 25px;
+                line-height: 1.1;
+                font-weight: 800;
+                letter-spacing: 0;
+                margin-top: 2px;
+            }}
+            .timer-meta {{
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                color: #cbd5e1;
+                font-size: 12px;
+                margin-top: 10px;
+            }}
+            .timer-meta strong {{
+                color: #f8fafc;
+            }}
+            .timer-track {{
+                background: rgba(148, 163, 184, 0.30);
+                height: 8px;
+                border-radius: 999px;
+                margin-top: 13px;
+                overflow: hidden;
+            }}
+            #timer-bar {{
+                background: linear-gradient(90deg, #2dd4bf, #60a5fa);
+                height: 8px;
+                width: {max(0, min(100, int((remaining_seconds / total_seconds) * 100)))}%;
+                border-radius: 999px;
+                transition: width 0.4s ease, background 0.4s ease;
+            }}
+        </style>
+        <div class="timer-card">
+            <div class="timer-head">
+                <div class="clock-icon"></div>
                 <div>
-                    <div id="timer-value" style="font-size:30px; font-weight:700;">
-                        {format_remaining_time(remaining_seconds)}
-                    </div>
-                    <div style="font-size:13px; color:#cbd5e1;">
-                        Time remaining
-                    </div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:20px; font-weight:700;">
-                        {format_duration(duration_minutes)}
-                    </div>
-                    <div style="font-size:13px; color:#cbd5e1;">
-                        Total duration
-                    </div>
+                    <div class="timer-label">Time Remaining</div>
+                    <div id="timer-value">{format_remaining_time(remaining_seconds)}</div>
                 </div>
             </div>
-            <div style="background:#374151; height:8px; border-radius:999px; margin-top:14px; overflow:hidden;">
-                <div id="timer-bar" style="
-                    background:#22c55e;
-                    height:8px;
-                    width:{max(0, min(100, int((remaining_seconds / total_seconds) * 100)))}%;
-                    border-radius:999px;">
-                </div>
+            <div class="timer-meta">
+                <span>Total <strong>{format_duration(duration_minutes)}</strong></span>
+                <span>Live timer</span>
+            </div>
+            <div class="timer-track">
+                <div id="timer-bar"></div>
             </div>
         </div>
         <script>
@@ -433,7 +894,7 @@ def render_live_timer(remaining_seconds, duration_minutes):
             }}, 1000);
         </script>
         """,
-        height=150
+        height=155
     )
 
 def render_visible_test_cases(test_cases):
@@ -1413,27 +1874,112 @@ if st.session_state.page == "login":
     # ---------------------------------------------------
     if role == "Student":
 
-        student_id = st.text_input("Student ID")
-
         student_email = st.text_input("Student Email")
 
-        if st.button("Login as Student"):
+        if st.button("Send Verification Code"):
 
-            if student_id.strip() == "":
+            student_email = student_email.strip().lower()
 
-                st.error("Please enter Student ID.")
-
-            elif not is_valid_email(student_email):
+            if not is_valid_email(student_email):
 
                 st.error("Please enter valid Student Email.")
 
             else:
 
-                st.session_state.student_id = student_id
-                st.session_state.student_email = student_email
-                st.session_state.page = "student_details"
+                verification_code = generate_verification_code()
+                sent, notice = send_student_verification_email(
+                    student_email,
+                    verification_code
+                )
+
+                st.session_state.pending_student_email = student_email
+                st.session_state.student_verification_code = verification_code
+                st.session_state.student_verification_expires_at = (
+                    datetime.now() + timedelta(minutes=10)
+                ).isoformat(timespec="seconds")
+                st.session_state.student_verification_sent = sent
+                st.session_state.student_verification_notice = notice
 
                 st.rerun()
+
+        if st.session_state.pending_student_email:
+
+            if st.session_state.student_verification_sent:
+
+                st.success(st.session_state.student_verification_notice)
+
+            else:
+
+                st.warning(st.session_state.student_verification_notice)
+
+            st.caption(
+                f"Verification pending for {st.session_state.pending_student_email}"
+            )
+
+            entered_code = st.text_input(
+                "Enter Verification Code",
+                max_chars=6
+            )
+
+            verify_col, resend_col = st.columns(2)
+
+            with verify_col:
+
+                if st.button("Verify Student Email"):
+
+                    expires_at = datetime.fromisoformat(
+                        st.session_state.student_verification_expires_at
+                    )
+
+                    if datetime.now() > expires_at:
+
+                        st.error(
+                            "Verification code expired. Please send a new code."
+                        )
+
+                    elif (
+                        entered_code.strip()
+                        == st.session_state.student_verification_code
+                    ):
+
+                        st.session_state.student_email = (
+                            st.session_state.pending_student_email
+                        )
+                        st.session_state.student_id = (
+                            st.session_state.pending_student_email
+                        )
+                        st.session_state.pending_student_email = ""
+                        st.session_state.student_verification_code = ""
+                        st.session_state.student_verification_expires_at = ""
+                        st.session_state.student_verification_sent = False
+                        st.session_state.student_verification_notice = ""
+                        st.session_state.page = "student_details"
+
+                        st.rerun()
+
+                    else:
+
+                        st.error("Invalid verification code.")
+
+            with resend_col:
+
+                if st.button("Resend Code"):
+
+                    verification_code = generate_verification_code()
+                    sent, notice = send_student_verification_email(
+                        st.session_state.pending_student_email,
+                        verification_code
+                    )
+                    st.session_state.student_verification_code = (
+                        verification_code
+                    )
+                    st.session_state.student_verification_expires_at = (
+                        datetime.now() + timedelta(minutes=10)
+                    ).isoformat(timespec="seconds")
+                    st.session_state.student_verification_sent = sent
+                    st.session_state.student_verification_notice = notice
+
+                    st.rerun()
 
     # ---------------------------------------------------
     # ADMIN LOGIN
@@ -1442,12 +1988,25 @@ if st.session_state.page == "login":
 
         admin_email = st.text_input("Administrator Email")
 
-        if st.button("Login as Administrator"):
+        if st.button("Send Admin Verification Code"):
+
+            admin_email = admin_email.strip().lower()
 
             if admin_email.lower().endswith("@edunetfoundation.org"):
 
-                st.session_state.admin_email = admin_email
-                st.session_state.page = "admin_dashboard"
+                verification_code = generate_verification_code()
+                sent, notice = send_admin_verification_email(
+                    admin_email,
+                    verification_code
+                )
+
+                st.session_state.pending_admin_email = admin_email
+                st.session_state.admin_verification_code = verification_code
+                st.session_state.admin_verification_expires_at = (
+                    datetime.now() + timedelta(minutes=10)
+                ).isoformat(timespec="seconds")
+                st.session_state.admin_verification_sent = sent
+                st.session_state.admin_verification_notice = notice
 
                 st.rerun()
 
@@ -1456,6 +2015,82 @@ if st.session_state.page == "login":
                 st.error(
                     "Only @edunetfoundation.org emails allowed."
                 )
+
+        if st.session_state.pending_admin_email:
+
+            if st.session_state.admin_verification_sent:
+
+                st.success(st.session_state.admin_verification_notice)
+
+            else:
+
+                st.warning(st.session_state.admin_verification_notice)
+
+            st.caption(
+                f"Verification pending for {st.session_state.pending_admin_email}"
+            )
+
+            entered_code = st.text_input(
+                "Enter Admin Verification Code",
+                max_chars=6
+            )
+
+            verify_col, resend_col = st.columns(2)
+
+            with verify_col:
+
+                if st.button("Verify Admin Email"):
+
+                    expires_at = datetime.fromisoformat(
+                        st.session_state.admin_verification_expires_at
+                    )
+
+                    if datetime.now() > expires_at:
+
+                        st.error(
+                            "Verification code expired. Please send a new code."
+                        )
+
+                    elif (
+                        entered_code.strip()
+                        == st.session_state.admin_verification_code
+                    ):
+
+                        st.session_state.admin_email = (
+                            st.session_state.pending_admin_email
+                        )
+                        st.session_state.pending_admin_email = ""
+                        st.session_state.admin_verification_code = ""
+                        st.session_state.admin_verification_expires_at = ""
+                        st.session_state.admin_verification_sent = False
+                        st.session_state.admin_verification_notice = ""
+                        st.session_state.page = "admin_dashboard"
+
+                        st.rerun()
+
+                    else:
+
+                        st.error("Invalid verification code.")
+
+            with resend_col:
+
+                if st.button("Resend Admin Code"):
+
+                    verification_code = generate_verification_code()
+                    sent, notice = send_admin_verification_email(
+                        st.session_state.pending_admin_email,
+                        verification_code
+                    )
+                    st.session_state.admin_verification_code = (
+                        verification_code
+                    )
+                    st.session_state.admin_verification_expires_at = (
+                        datetime.now() + timedelta(minutes=10)
+                    ).isoformat(timespec="seconds")
+                    st.session_state.admin_verification_sent = sent
+                    st.session_state.admin_verification_notice = notice
+
+                    st.rerun()
 
 # ===================================================
 # STUDENT DETAILS PAGE
@@ -1467,7 +2102,7 @@ elif st.session_state.page == "student_details":
         st.title("Student")
 
         st.write(
-            f"Student ID: {st.session_state.student_id}"
+            f"Email: {st.session_state.student_email}"
         )
 
         if st.button("Back to Login"):
@@ -2110,6 +2745,18 @@ elif st.session_state.page == "take_assessment":
     time_expired = remaining_seconds == 0
     assessment_submitted = st.session_state.assessment_submitted
 
+    (
+        attempted,
+        correct,
+        incorrect,
+        pending,
+        percentage,
+        earned_marks,
+        total_marks
+    ) = (
+        get_assessment_stats(df)
+    )
+
     with st.sidebar:
         st.title("Assessment Dashboard")
 
@@ -2120,52 +2767,165 @@ elif st.session_state.page == "take_assessment":
 
             st.rerun()
 
-        st.write(
-            f"Time Remaining: {format_remaining_time(remaining_seconds)}"
+        render_live_timer(
+            remaining_seconds,
+            st.session_state.timer_duration_minutes
+            or assessment_metadata.get("duration_minutes", 0)
         )
+
         st.write(
             f"Assessment Ends: "
             f"{format_datetime(assessment_metadata.get('end_at'))}"
         )
 
-    # ---------------------------------------------------
-    # CALCULATIONS
-    # ---------------------------------------------------
-        (
-            attempted,
-            correct,
-            incorrect,
-            pending,
-            percentage,
-            earned_marks,
-            total_marks
-        ) = (
-            get_assessment_stats(df)
+        st.markdown("**Question Map**")
+        st.markdown(
+            """
+            <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:12px; margin-bottom:10px;">
+                <span><b style="color:#10b981;">●</b> Submitted</span>
+                <span><b style="color:#ef4444;">●</b> Pending</span>
+                <span><b style="color:#818cf8;">●</b> Current</span>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    # ---------------------------------------------------
-    # QUESTION TRACKER
-    # ---------------------------------------------------
-    st.write(
-        f"Current Question: "
-        f"{current_q + 1}/{total_questions}"
+        bubble_html = """
+        <style>
+            .bubble-grid {
+                display: grid;
+                grid-template-columns: repeat(5, 1fr);
+                gap: 8px;
+                width: 100%;
+                box-sizing: border-box;
+                padding: 2px 0 4px;
+                font-family: Inter, Arial, sans-serif;
+            }
+            .q-bubble {
+                width: 34px;
+                height: 34px;
+                margin: 0 auto;
+                border-radius: 50%;
+                color: #ffffff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                font-weight: 800;
+                cursor: pointer;
+                user-select: none;
+                box-sizing: border-box;
+                transition: transform 140ms ease, filter 140ms ease;
+            }
+            .q-bubble:hover {
+                transform: translateY(-2px) scale(1.05);
+                filter: brightness(1.08);
+            }
+        </style>
+        <div class="bubble-grid">
+        """
+
+        for i in range(total_questions):
+
+            if i == current_q:
+                bg = "#6366f1"
+                border = "3px solid #c7d2fe"
+                status = "Current"
+            elif i in st.session_state.answers:
+                bg = "#10b981"
+                border = "3px solid rgba(16, 185, 129, 0.25)"
+                status = "Submitted"
+            else:
+                bg = "#ef4444"
+                border = "3px solid rgba(239, 68, 68, 0.25)"
+                status = "Pending"
+
+            bubble_html += f"""
+            <div
+                class="q-bubble"
+                title="Q{i + 1}: {status}"
+                onclick="
+                    var selects = window.parent.document.querySelectorAll('select');
+                    for (var s = 0; s < selects.length; s++) {{
+                        if (selects[s].getAttribute('aria-label') === 'question_nav_select' ||
+                            selects[s].id.includes('question_nav_select')) {{
+                            selects[s].value = '{i}';
+                            selects[s].dispatchEvent(new Event('change', {{bubbles: true}}));
+                            break;
+                        }}
+                    }}
+                "
+                style="background:{bg}; border:{border};"
+            >
+                {i + 1}
+            </div>
+            """
+
+        bubble_html += "</div>"
+        bubble_rows = max(1, (total_questions + 4) // 5)
+
+        components.html(
+            bubble_html,
+            height=bubble_rows * 44 + 12,
+            scrolling=False
+        )
+
+        nav_index = current_q if current_q < total_questions else 0
+        selected_nav = st.selectbox(
+            "question_nav_select",
+            options=list(range(total_questions)),
+            index=nav_index,
+            format_func=lambda x: f"Question {x + 1}",
+            key="question_nav_select",
+            label_visibility="collapsed"
+        )
+
+        if selected_nav != current_q:
+
+            st.session_state.current_question = selected_nav
+            save_assessment_progress()
+            st.rerun()
+
+    assessment_title = Path(
+        str(st.session_state.selected_assessment)
+    ).stem.replace("_", " ")
+
+    st.markdown(
+        f"""
+        <div class="assessment-topbar">
+            <div>
+                <div class="assessment-kicker">
+                    Question {current_q + 1} of {total_questions}
+                </div>
+                <h1 class="assessment-title">
+                    {html.escape(assessment_title)}
+                </h1>
+            </div>
+            <div class="score-strip">
+                <div class="score-card">
+                    <span>Score</span>
+                    <strong>{earned_marks}/{total_marks}</strong>
+                </div>
+                <div class="score-card">
+                    <span>Attempted</span>
+                    <strong>{attempted}/{total_questions}</strong>
+                </div>
+                <div class="score-card">
+                    <span>Pending</span>
+                    <strong>{pending}</strong>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-    # ---------------------------------------------------
-    # PROGRESS BAR
-    # ---------------------------------------------------
     progress_value = attempted / total_questions
 
     st.progress(progress_value)
 
-    st.write(
-        f"{attempted} of {total_questions} Questions Attempted"
-    )
-
-    render_live_timer(
-        remaining_seconds,
-        st.session_state.timer_duration_minutes
-        or assessment_metadata.get("duration_minutes", 0)
+    st.caption(
+        f"{attempted} of {total_questions} questions attempted"
     )
 
     if time_expired and not assessment_submitted:
@@ -2210,24 +2970,16 @@ elif st.session_state.page == "take_assessment":
         question_text = str(row["Question"])
 
         st.markdown(
-        f"""
-        <div class="question-text">
-<pre style="
-white-space: pre-wrap;
-font-size:16px;
-font-family: Consolas, monospace;
-line-height:1.6;
-background-color:#f8fafc;
-padding:18px;
-border-radius:12px;
-border:1px solid #e5e7eb;
-">
-{question_text}
-</pre>
+            f"""
+        <div class="panel-card">
+            <h3 class="panel-title">Problem</h3>
+            <div class="question-text">
+                <pre class="question-pre">{html.escape(question_text)}</pre>
+            </div>
         </div>
         """,
-        unsafe_allow_html=True
-    )
+            unsafe_allow_html=True
+        )
 
         render_visible_test_cases(test_cases)
 
@@ -2237,6 +2989,15 @@ border:1px solid #e5e7eb;
     with right:
 
         if coding_question:
+
+            st.markdown(
+                """
+                <div class="panel-card">
+                    <h3 class="panel-title">Workspace</h3>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
             language_options = [
                 "Python",
@@ -2599,12 +3360,12 @@ border:1px solid #e5e7eb;
     # Clicking a bubble sets a hidden selectbox which
     # Streamlit picks up to trigger navigation.
     # ---------------------------------------------------
-    st.markdown("### Question Status")
+    st.markdown("")
 
     # Legend
     st.markdown(
         """
-        <div style="display:flex; gap:18px; margin-bottom:10px; font-size:13px;">
+        <div style="display:none; gap:18px; margin-bottom:10px; font-size:13px;">
             <span>
                 <span style="
                     display:inline-block;
@@ -2715,7 +3476,7 @@ border:1px solid #e5e7eb;
 
     # Calculate iframe height: ~44px per row of 15 bubbles + padding
     bubble_rows = max(1, (total_questions + 14) // 15)
-    bubble_height = bubble_rows * 52 + 20
+    bubble_height = 0
 
     components.html(bubble_html, height=bubble_height, scrolling=False)
 
@@ -2723,11 +3484,11 @@ border:1px solid #e5e7eb;
     nav_index = current_q if current_q < total_questions else 0
 
     selected_nav = st.selectbox(
-        "question_nav_select",
+        "question_nav_select_legacy",
         options=list(range(total_questions)),
         index=nav_index,
         format_func=lambda x: f"Question {x + 1}",
-        key="question_nav_select",
+        key="question_nav_select_legacy",
         label_visibility="collapsed"
     )
 
