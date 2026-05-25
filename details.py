@@ -9,7 +9,7 @@ import random
 # PAGE CONFIG
 # ---------------------------------------------------
 st.set_page_config(
-    page_title="NSTI Assessment LMS",
+    page_title="Edunet Assessment LMS",
     page_icon="📘",
     layout="wide"
 )
@@ -193,7 +193,7 @@ if st.session_state.page == "login":
     st.markdown(
         """
         <div class='dashboard-card hero-card'>
-            <h1>NSTI Assessment LMS</h1>
+            <h1>Edunet Assessment LMS</h1>
             <p>Login to continue.</p>
         </div>
         """,

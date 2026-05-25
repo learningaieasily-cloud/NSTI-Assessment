@@ -59,8 +59,6 @@ if not os.path.exists("assessment_progress"):
 if not os.path.exists("assessment_metadata"):
     os.makedirs("assessment_metadata")
 
-STUDENT_REGISTRY_FILE = Path("app_data") / "student_registry.json"
-
 # ---------------------------------------------------
 # CUSTOM CSS
 # ---------------------------------------------------
@@ -672,360 +670,6 @@ def safe_file_name(value):
         "_",
         str(value).strip()
     )
-
-def get_record_value(record, aliases, default=""):
-
-    normalized_record = {
-        re.sub(r"[^a-z0-9]+", "", str(key).strip().lower()): value
-        for key, value in record.items()
-    }
-
-    for alias in aliases:
-
-        normalized_alias = re.sub(
-            r"[^a-z0-9]+",
-            "",
-            str(alias).strip().lower()
-        )
-
-        if normalized_alias in normalized_record:
-
-            value = normalized_record[normalized_alias]
-
-            if pd.notna(value):
-
-                return value
-
-    return default
-
-def normalize_text_value(value):
-
-    return " ".join(str(value or "").strip().split())
-
-def normalize_email_value(value):
-
-    return str(value or "").strip().lower()
-
-def load_student_registry():
-
-    if not STUDENT_REGISTRY_FILE.exists():
-
-        return []
-
-    try:
-
-        records = json.loads(
-            STUDENT_REGISTRY_FILE.read_text(encoding="utf-8")
-        )
-
-    except Exception:
-
-        return []
-
-    cleaned_records = []
-
-    for record in records:
-
-        if not isinstance(record, dict):
-
-            continue
-
-        email = normalize_email_value(record.get("student_email", ""))
-
-        if not email:
-
-            continue
-
-        cleaned_records.append(
-            {
-                "student_id": normalize_text_value(
-                    record.get("student_id", email)
-                ) or email,
-                "student_email": email,
-                "full_name": normalize_text_value(
-                    record.get("full_name", "")
-                ),
-                "course": normalize_text_value(
-                    record.get("course", "")
-                ).upper(),
-                "institution": normalize_text_value(
-                    record.get("institution", "")
-                ),
-                "location": normalize_text_value(
-                    record.get("location", "")
-                ),
-                "registered_at": record.get("registered_at", "")
-            }
-        )
-
-    return cleaned_records
-
-def save_student_registry(records):
-
-    STUDENT_REGISTRY_FILE.parent.mkdir(exist_ok=True)
-    cleaned_by_email = {}
-
-    for record in records:
-
-        email = normalize_email_value(record.get("student_email", ""))
-
-        if not email:
-
-            continue
-
-        cleaned_by_email[email] = {
-            "student_id": normalize_text_value(
-                record.get("student_id", email)
-            ) or email,
-            "student_email": email,
-            "full_name": normalize_text_value(record.get("full_name", "")),
-            "course": normalize_text_value(
-                record.get("course", "")
-            ).upper(),
-            "institution": normalize_text_value(
-                record.get("institution", "")
-            ),
-            "location": normalize_text_value(record.get("location", "")),
-            "registered_at": record.get("registered_at", now_iso())
-        }
-
-    STUDENT_REGISTRY_FILE.write_text(
-        json.dumps(
-            sorted(
-                cleaned_by_email.values(),
-                key=lambda item: (
-                    item.get("course", ""),
-                    item.get("institution", ""),
-                    item.get("full_name", "")
-                )
-            ),
-            indent=2
-        ),
-        encoding="utf-8"
-    )
-
-def find_registered_student(student_email):
-
-    target_email = normalize_email_value(student_email)
-
-    for record in load_student_registry():
-
-        if record.get("student_email") == target_email:
-
-            return record
-
-    return None
-
-def apply_registered_student(record):
-
-    if not record:
-
-        return
-
-    st.session_state.student_id = (
-        record.get("student_id")
-        or record.get("student_email")
-        or st.session_state.student_email
-    )
-    st.session_state.student_email = (
-        record.get("student_email")
-        or st.session_state.student_email
-    )
-    st.session_state.full_name = record.get("full_name", "")
-    st.session_state.selected_course = record.get("course", "")
-    st.session_state.selected_nsti = record.get("institution", "")
-    st.session_state.location = record.get("location", "")
-    st.session_state.assessment_date = date.today()
-
-def get_registered_institutions_for_course(course):
-
-    course_name = normalize_text_value(course).upper()
-    institutions = sorted(
-        {
-            record.get("institution", "")
-            for record in load_student_registry()
-            if record.get("course") == course_name
-            and record.get("institution", "")
-        }
-    )
-
-    return institutions
-
-def parse_student_registry_workbook(workbook_bytes):
-
-    parsed_records = []
-    warnings = []
-
-    try:
-
-        workbook = pd.ExcelFile(
-            BytesIO(workbook_bytes),
-            engine="openpyxl"
-        )
-
-    except Exception as e:
-
-        return [], [f"Could not read student registry workbook: {e}"]
-
-    for sheet_name in workbook.sheet_names:
-
-        try:
-
-            sheet_df = pd.read_excel(
-                workbook,
-                sheet_name=sheet_name
-            ).dropna(how="all")
-
-        except Exception as e:
-
-            warnings.append(f"{sheet_name}: could not read sheet ({e}).")
-            continue
-
-        for row_number, row in sheet_df.iterrows():
-
-            record = row.to_dict()
-            full_name = normalize_text_value(
-                get_record_value(
-                    record,
-                    [
-                        "Student Name",
-                        "Student Full Name",
-                        "Full Name",
-                        "Name"
-                    ]
-                )
-            )
-            student_email = normalize_email_value(
-                get_record_value(
-                    record,
-                    [
-                        "Student Email",
-                        "Email",
-                        "Email ID",
-                        "Email Address"
-                    ]
-                )
-            )
-            student_id = normalize_text_value(
-                get_record_value(
-                    record,
-                    [
-                        "Student ID",
-                        "Enrollment ID",
-                        "Roll No",
-                        "Roll Number",
-                        "ID"
-                    ],
-                    student_email
-                )
-            )
-            course = normalize_text_value(
-                get_record_value(
-                    record,
-                    ["Course", "Course Name"]
-                )
-            ).upper()
-            institution = normalize_text_value(
-                get_record_value(
-                    record,
-                    [
-                        "Institution Name",
-                        "Institution",
-                        "Institute",
-                        "NSTI",
-                        "College"
-                    ]
-                )
-            )
-            location = normalize_text_value(
-                get_record_value(
-                    record,
-                    ["Location", "City", "State"]
-                )
-            )
-            excel_row = int(row_number) + 2
-            row_label = f"{sheet_name} row {excel_row}"
-
-            if not full_name:
-
-                warnings.append(f"{row_label}: missing student name.")
-                continue
-
-            if not is_valid_name(full_name):
-
-                warnings.append(
-                    f"{row_label}: student name should contain letters and spaces only."
-                )
-                continue
-
-            if not is_valid_email(student_email):
-
-                warnings.append(f"{row_label}: invalid student email.")
-                continue
-
-            if not course:
-
-                warnings.append(f"{row_label}: missing course.")
-                continue
-
-            if not institution:
-
-                warnings.append(f"{row_label}: missing institution.")
-                continue
-
-            if not location:
-
-                warnings.append(f"{row_label}: missing location.")
-                continue
-
-            if not is_valid_name(location):
-
-                warnings.append(
-                    f"{row_label}: location should contain letters and spaces only."
-                )
-                continue
-
-            parsed_records.append(
-                {
-                    "student_id": student_id or student_email,
-                    "student_email": student_email,
-                    "full_name": full_name,
-                    "course": course,
-                    "institution": institution,
-                    "location": location,
-                    "registered_at": now_iso()
-                }
-            )
-
-    return parsed_records, warnings
-
-def build_student_registry_template():
-
-    output = BytesIO()
-    template_df = pd.DataFrame(
-        [
-            {
-                "Student ID": "STU001",
-                "Student Name": "Sample Student",
-                "Student Email": "student@example.com",
-                "Course": "AIMD",
-                "Institution Name": "NSTI Example",
-                "Location": "Bangalore"
-            }
-        ]
-    )
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-
-        template_df.to_excel(
-            writer,
-            sheet_name="Students",
-            index=False
-        )
-
-    output.seek(0)
-
-    return output
 
 def progress_file_path(student_id, student_email, assessment_file):
 
@@ -3254,7 +2898,7 @@ def build_progress_analysis(progress_data, metadata=None):
     )
     assessment_name = (
         metadata.get("assessment_name")
-        or Path(str(assessment_file)).stem
+        or Path(str(assessment_file)).stem.replace("_", " ")
     )
     institution_name = progress_data.get("nsti", "")
     submitted_status = (
@@ -3423,7 +3067,7 @@ def load_all_progress_records():
                     "Assessment": assessment_file,
                     "Assessment Name": (
                         metadata.get("assessment_name")
-                        or Path(str(assessment_file)).stem
+                        or Path(str(assessment_file)).stem.replace("_", " ")
                     ),
                     "Submitted": (
                         "Yes"
@@ -4712,30 +4356,18 @@ if st.session_state.page == "login":
                         == st.session_state.student_verification_code
                     ):
 
-                        verified_student_email = (
+                        st.session_state.student_email = (
                             st.session_state.pending_student_email
                         )
-                        st.session_state.student_email = verified_student_email
-                        st.session_state.student_id = verified_student_email
+                        st.session_state.student_id = (
+                            st.session_state.pending_student_email
+                        )
                         st.session_state.pending_student_email = ""
                         st.session_state.student_verification_code = ""
                         st.session_state.student_verification_expires_at = ""
                         st.session_state.student_verification_sent = False
                         st.session_state.student_verification_notice = ""
-                        registered_student = find_registered_student(
-                            verified_student_email
-                        )
-
-                        if registered_student:
-
-                            apply_registered_student(registered_student)
-                            st.session_state.page = (
-                                "student_assessment_selection"
-                            )
-
-                        else:
-
-                            st.session_state.page = "student_details"
+                        st.session_state.page = "student_details"
 
                         st.rerun()
 
@@ -4922,36 +4554,6 @@ elif st.session_state.page == "student_details":
             on_click=logout
         )
 
-    registered_student = find_registered_student(
-        st.session_state.student_email
-    )
-
-    if registered_student:
-
-        apply_registered_student(registered_student)
-        st.markdown(
-            f"""
-            <div class='dashboard-card'>
-                <h2>Registered Student Details</h2>
-                <p>Your details were uploaded by the administrator and are locked for this course.</p>
-                <div style="margin-top:14px; line-height:1.9;">
-                    Name: <b>{html.escape(st.session_state.full_name)}</b><br>
-                    Course: <b>{html.escape(st.session_state.selected_course)}</b><br>
-                    Institution: <b>{html.escape(st.session_state.selected_nsti)}</b><br>
-                    Location: <b>{html.escape(st.session_state.location)}</b>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if st.button("Continue to Assessments"):
-
-            st.session_state.page = "student_assessment_selection"
-            st.rerun()
-
-        st.stop()
-
     st.markdown(
         """
         <div class='dashboard-card'>
@@ -4972,21 +4574,9 @@ elif st.session_state.page == "student_details":
             ["Select Course"] + courses
         )
 
-        institution_options = nsti_list
-
-        if selected_course != "Select Course":
-
-            registered_institutions = get_registered_institutions_for_course(
-                selected_course
-            )
-
-            if registered_institutions:
-
-                institution_options = registered_institutions
-
         selected_nsti = st.selectbox(
             "Select Institution",
-            ["Select Institution"] + institution_options
+            ["Select Institution"] + nsti_list
         )
 
         location = st.text_input("Location")
@@ -5009,7 +4599,6 @@ elif st.session_state.page == "student_details":
     if next_button:
 
         full_name = " ".join(full_name.strip().split())
-        location = " ".join(location.strip().split())
 
         if full_name == "":
 
@@ -5032,10 +4621,6 @@ elif st.session_state.page == "student_details":
         elif location.strip() == "":
 
             st.error("Please enter Location.")
-
-        elif not is_valid_name(location):
-
-            st.error("Location should contain letters and spaces only.")
 
         else:
 
@@ -5083,16 +4668,13 @@ elif st.session_state.page == "admin_dashboard":
         if file.endswith(".xlsx")
     ]
     report_records = load_all_progress_records()
-    registered_students = load_student_registry()
     submitted_count = sum(
         1
         for record in report_records
         if record.get("Submitted") == "Yes"
     )
 
-    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = (
-        st.columns(5)
-    )
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
     with metric_col1:
 
@@ -5123,18 +4705,6 @@ elif st.session_state.page == "admin_dashboard":
         st.markdown(
             f"""
             <div class='metric-card'>
-                <h3>{len(registered_students)}</h3>
-                <div class='metric-pill'>Registered</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with metric_col4:
-
-        st.markdown(
-            f"""
-            <div class='metric-card'>
                 <h3>{len(report_records)}</h3>
                 <div class='metric-pill'>Students Tracked</div>
             </div>
@@ -5142,7 +4712,7 @@ elif st.session_state.page == "admin_dashboard":
             unsafe_allow_html=True
         )
 
-    with metric_col5:
+    with metric_col4:
 
         st.markdown(
             f"""
@@ -5156,7 +4726,7 @@ elif st.session_state.page == "admin_dashboard":
 
     st.markdown("### Quick Actions")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
 
@@ -5176,21 +4746,13 @@ elif st.session_state.page == "admin_dashboard":
 
     with col3:
 
-        if st.button("Register Students"):
-
-            st.session_state.page = "student_registry"
-
-            st.rerun()
-
-    with col4:
-
         if st.button("Manage Courses"):
 
             st.session_state.page = "course_management"
 
             st.rerun()
 
-    with col5:
+    with col4:
 
         if st.button("Download Reports"):
 
@@ -5325,186 +4887,6 @@ elif st.session_state.page == "course_management":
                     )
                     st.success("Course removed.")
                     st.rerun()
-
-# ===================================================
-# STUDENT REGISTRY PAGE
-# ===================================================
-elif st.session_state.page == "student_registry":
-
-    with st.sidebar:
-
-        st.title("Administrator")
-
-        if st.button("Back to Dashboard"):
-
-            st.session_state.page = "admin_dashboard"
-
-            st.rerun()
-
-        st.button(
-            "Logout",
-            on_click=logout
-        )
-
-    st.markdown(
-        """
-        <div class='dashboard-card'>
-            <h2>Student Registry</h2>
-            <p>Upload course-wise student rosters and lock student details after email verification.</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.download_button(
-        "Download Student Registry Template",
-        data=build_student_registry_template(),
-        file_name="Student_Registry_Template.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        )
-    )
-
-    st.info(
-        """
-        Required Excel columns: Student Name, Student Email, Course,
-        Institution Name, and Location. Student ID is optional.
-        Multiple sheets are supported.
-        """
-    )
-
-    uploaded_registry_file = st.file_uploader(
-        "Upload Student Registry Excel",
-        type=["xlsx"]
-    )
-
-    if uploaded_registry_file is not None:
-
-        registry_records, registry_warnings = parse_student_registry_workbook(
-            uploaded_registry_file.getvalue()
-        )
-
-        if registry_warnings:
-
-            with st.expander(
-                f"Rows skipped or needing attention ({len(registry_warnings)})",
-                expanded=False
-            ):
-
-                for warning in registry_warnings:
-
-                    st.warning(warning)
-
-        if registry_records:
-
-            registry_preview_df = pd.DataFrame(registry_records)
-            preview_col1, preview_col2, preview_col3 = st.columns(3)
-
-            with preview_col1:
-
-                st.metric("Valid Students", len(registry_preview_df))
-
-            with preview_col2:
-
-                st.metric(
-                    "Courses",
-                    registry_preview_df["course"].nunique()
-                )
-
-            with preview_col3:
-
-                st.metric(
-                    "Institutions",
-                    registry_preview_df["institution"].nunique()
-                )
-
-            st.dataframe(
-                registry_preview_df.rename(
-                    columns={
-                        "student_id": "Student ID",
-                        "student_email": "Student Email",
-                        "full_name": "Student Name",
-                        "course": "Course",
-                        "institution": "Institution Name",
-                        "location": "Location",
-                        "registered_at": "Registered At"
-                    }
-                ),
-                use_container_width=True
-            )
-
-            replace_registry = st.checkbox(
-                "Replace existing registry with this upload",
-                value=False
-            )
-
-            if st.button("Register Students"):
-
-                existing_records = (
-                    []
-                    if replace_registry
-                    else load_student_registry()
-                )
-                save_student_registry(existing_records + registry_records)
-
-                courses = load_courses()
-                uploaded_courses = sorted(
-                    {
-                        record.get("course", "")
-                        for record in registry_records
-                        if record.get("course", "")
-                    }
-                )
-                save_courses(
-                    sorted(set(courses) | set(uploaded_courses))
-                )
-
-                st.success(
-                    f"Registered {len(registry_records)} student record(s)."
-                )
-                st.rerun()
-
-        else:
-
-            st.error("No valid student records found in the uploaded workbook.")
-
-    current_registry = load_student_registry()
-
-    st.markdown("### Current Registered Students")
-
-    if not current_registry:
-
-        st.warning("No students are registered yet.")
-
-    else:
-
-        registry_df = pd.DataFrame(current_registry)
-        registry_course_filter = st.selectbox(
-            "View Registered Course",
-            ["All"] + sorted(registry_df["course"].dropna().unique())
-        )
-
-        if registry_course_filter != "All":
-
-            registry_df = registry_df[
-                registry_df["course"] == registry_course_filter
-            ]
-
-        st.dataframe(
-            registry_df.rename(
-                columns={
-                    "student_id": "Student ID",
-                    "student_email": "Student Email",
-                    "full_name": "Student Name",
-                    "course": "Course",
-                    "institution": "Institution Name",
-                    "location": "Location",
-                    "registered_at": "Registered At"
-                }
-            ),
-            use_container_width=True
-        )
 
 # ===================================================
 # UPLOAD ASSESSMENT PAGE
@@ -5968,17 +5350,13 @@ elif st.session_state.page == "view_assessments":
 
             col1, col2, col3 = st.columns([4, 1, 1])
             metadata = load_assessment_metadata(file)
-            display_assessment_name = (
-                metadata.get("assessment_name")
-                or Path(str(file)).stem
-            )
 
             with col1:
 
                 st.markdown(
                     f"""
                     <div class='metric-card'>
-                        <h3>{html.escape(str(display_assessment_name))}</h3>
+                        <h3>{file.replace('.xlsx', '')}</h3>
                         <div class='metric-pill'>
                             Available
                         </div>
@@ -6041,7 +5419,7 @@ elif st.session_state.page == "view_assessments":
             if st.session_state.get("edit_assessment_file") == file:
 
                 with st.expander(
-                    f"Edit {display_assessment_name}",
+                    f"Edit {file.replace('.xlsx', '')}",
                     expanded=True
                 ):
 
@@ -6397,10 +5775,6 @@ elif st.session_state.page == "student_assessment_selection":
 
             col1, col2 = st.columns([4, 1])
             metadata = load_assessment_metadata(file)
-            display_assessment_name = (
-                metadata.get("assessment_name")
-                or Path(str(file)).stem
-            )
             is_available, availability_message = (
                 get_assessment_availability(metadata)
             )
@@ -6415,7 +5789,7 @@ elif st.session_state.page == "student_assessment_selection":
                 st.markdown(
                     f"""
                     <div class='metric-card'>
-                        <h3>{html.escape(str(display_assessment_name))}</h3>
+                        <h3>{file.replace('.xlsx', '')}</h3>
                         <div class='metric-pill'>
                             {availability_message}
                         </div>
@@ -6707,10 +6081,9 @@ elif st.session_state.page == "take_assessment":
 
         st.markdown(question_map_html, unsafe_allow_html=True)
 
-    assessment_title = (
-        assessment_metadata.get("assessment_name")
-        or Path(str(st.session_state.selected_assessment)).stem
-    )
+    assessment_title = Path(
+        str(st.session_state.selected_assessment)
+    ).stem.replace("_", " ")
     visible_question_number = visible_question_indices.index(current_q) + 1
     visible_total_questions = len(visible_question_indices)
 
@@ -7657,7 +7030,7 @@ elif st.session_state.page == "download_reports":
                     "Assessment": assessment_file,
                     "Assessment Name": (
                         metadata.get("assessment_name")
-                        or Path(str(assessment_file)).stem
+                        or Path(str(assessment_file)).stem.replace("_", " ")
                     ),
                     "Course": metadata.get("course", "AIMD")
                 }
